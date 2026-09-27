@@ -12,7 +12,7 @@ import { useHerbStore } from '../stores/herbStore';
 import { useMethodStore } from '../stores/methodStore';
 import { useBatchStore } from '../stores/batchStore';
 import { HERB_ORIGINS, HERB_PARTS } from '../types/herb-material';
-import { FIRE_LEVELS, type FireLevel } from '../types/processing-method';
+import { FIRE_LEVELS, type FireLevel, type ProcessingMethod } from '../types/processing-method';
 import { PROCESS_DEGREES, type ProcessBatch, type ProcessDegree } from '../types/process-batch';
 import { DEGREE_RULES, judgeDegree, suggestedValues } from '../utils/degree';
 
@@ -68,16 +68,26 @@ export default function BatchBoard() {
     return Number(((out / feed) * 100).toFixed(1));
   }, [watched?.feedKg, watched?.outputKg]);
 
-  const verdict = useMemo(() => {
-    if (!watchedMethod) return undefined;
+  /** 按给定表单值计算系统判定（温度/时长/得率/辅料偏差共同投票） */
+  const computeVerdict = (values: Partial<BatchFormValues>, method: ProcessingMethod | undefined) => {
+    if (!method) return undefined;
+    const feed = Number(values.feedKg) || 0;
+    const out = Number(values.outputKg) || 0;
     return judgeDegree({
-      method: watchedMethod,
-      fireLevel: (watched?.fireLevel ?? watchedMethod.fireLevel) as FireLevel,
-      duration: Number(watched?.duration) || watchedMethod.duration,
-      temp: Number(watched?.temp) || Math.round((watchedMethod.tempRange[0] + watchedMethod.tempRange[1]) / 2),
-      yieldRate: watchedYieldRate,
+      method,
+      fireLevel: (values.fireLevel ?? method.fireLevel) as FireLevel,
+      duration: Number(values.duration) || method.duration,
+      temp: Number(values.temp) || Math.round((method.tempRange[0] + method.tempRange[1]) / 2),
+      yieldRate: feed > 0 ? Number(((out / feed) * 100).toFixed(1)) : 0,
+      feedKg: feed,
+      auxUsedKg: Number(values.auxUsedKg) || 0,
     });
-  }, [watchedMethod, watched?.fireLevel, watched?.duration, watched?.temp, watchedYieldRate]);
+  };
+
+  const verdict = useMemo(
+    () => computeVerdict(watched ?? {}, watchedMethod),
+    [watched, watchedMethod],
+  );
 
   const visibleHerbs = useMemo(() => herbFilter.apply(herbs), [herbs, herbFilter]);
   const visibleBatches = useMemo(() => {
@@ -238,7 +248,8 @@ export default function BatchBoard() {
         炮制工序记录台
       </Title>
       <Paragraph type="secondary">
-        选择方法即带出辅料比例、火候与判断标准；录入实际锅温、时长与炮制后重量，系统按标准自动给出程度判定，提交后锁定该批。
+        选择方法即带出辅料比例、火候与判断标准；录入实际锅温、时长、辅料用量与炮制后重量，系统按标准自动给出程度判定（辅料偏离折算目标
+        5% 以上计入判定），提交后锁定该批。
       </Paragraph>
 
       <Space style={{ marginBottom: 12 }} wrap>
@@ -261,6 +272,9 @@ export default function BatchBoard() {
               { title: '处置', dataIndex: 'action', width: 280 },
             ]}
           />
+          <Paragraph type="secondary" style={{ margin: '8px 0 0' }}>
+            辅料偏差按折算目标量的比例计算（不用公斤差）；清炒、燀、煅等无需辅料的方法不参与辅料比对。
+          </Paragraph>
         </Card>
       ) : null}
 
@@ -317,7 +331,7 @@ export default function BatchBoard() {
                 } as unknown as BatchFormValues);
               }
             }
-            if (verdict && ('temp' in changed || 'duration' in changed || 'outputKg' in changed)) {
+            if (verdict && ('temp' in changed || 'duration' in changed || 'outputKg' in changed || 'feedKg' in changed || 'auxUsedKg' in changed)) {
               form.setFieldsValue({ degree: verdict.degree } as unknown as BatchFormValues);
             }
           }}
@@ -382,6 +396,11 @@ export default function BatchBoard() {
               if (patch.auxUsedKg !== undefined) {
                 form.setFieldsValue({ auxUsedKg: patch.auxUsedKg } as unknown as BatchFormValues);
               }
+              // 折算台改动属程序化赋值、不触发 onValuesChange，这里按最新表单值重算并同步程度
+              const fresh = computeVerdict(form.getFieldsValue(true) as unknown as BatchFormValues, watchedMethod);
+              if (fresh) {
+                form.setFieldsValue({ degree: fresh.degree } as unknown as BatchFormValues);
+              }
             }}
           />
 
@@ -411,7 +430,7 @@ export default function BatchBoard() {
             message={`系统判定：${verdict?.degree ?? '待录入火候与得率'}（得率 ${watchedYieldRate}%，预期 ${verdict?.expectedYield ?? '-'}%）`}
             description={
               <ul style={{ margin: 0, paddingLeft: 18 }}>
-                {(verdict?.reasons ?? ['选择方法并录入锅温、时长、炮制后重量后自动判定']).map((r) => (
+                {(verdict?.reasons ?? ['选择方法并录入锅温、时长、辅料用量、炮制后重量后自动判定']).map((r) => (
                   <li key={r}>{r}</li>
                 ))}
               </ul>

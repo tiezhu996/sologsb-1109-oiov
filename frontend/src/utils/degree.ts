@@ -31,11 +31,14 @@ export function fireLevelTempRange(level: FireLevel): [number, number] {
   return FIRE_LEVEL_TEMP[level];
 }
 
+/** 辅料用量判定容差（%）：偏差按折算目标的比例计，超出 ±5% 才计入程度判定 */
+export const AUX_TOLERANCE_PCT = 5;
+
 /** 程度判定规则表（页面直接展示，供操作工对照） */
 export const DEGREE_RULES: DegreeRule[] = [
-  { degree: '不及', condition: '锅温低于标准区间下限，或时长不足标准值 20% 以上，或得率高于预期 3% 以上', action: '延长炮制时间后复判，禁止直接提交' },
-  { degree: '适中', condition: '锅温落入标准区间，时长在标准值 ±20% 内，得率在预期 ±3% 内', action: '判定适中并锁定批次，可取样留样' },
-  { degree: '太过', condition: '锅温高于标准区间上限，或时长超出标准值 20% 以上，或得率低于预期 6% 以上', action: '判定太过并隔离本批，转不合格品流程' },
+  { degree: '不及', condition: '锅温低于标准区间下限，或时长不足标准值 20% 以上，或得率高于预期 3% 以上，或辅料低于折算目标 5% 以上', action: '延长炮制时间后复判，禁止直接提交' },
+  { degree: '适中', condition: '锅温落入标准区间，时长在标准值 ±20% 内，得率在预期 ±3% 内，辅料在折算目标 ±5% 内', action: '判定适中并锁定批次，可取样留样' },
+  { degree: '太过', condition: '锅温高于标准区间上限，或时长超出标准值 20% 以上，或得率低于预期 6% 以上，或辅料高于折算目标 5% 以上', action: '判定太过并隔离本批，转不合格品流程' },
 ];
 
 export interface DegreeInput {
@@ -47,6 +50,10 @@ export interface DegreeInput {
   temp: number;
   /** 实际得率（%） */
   yieldRate: number;
+  /** 投料量（kg），用于折算辅料目标量 */
+  feedKg: number;
+  /** 辅料实际用量（kg） */
+  auxUsedKg: number;
 }
 
 export interface DegreeVerdict {
@@ -60,10 +67,12 @@ export interface DegreeVerdict {
 }
 
 /**
- * 炮制程度判定：分别比对温度、时长与得率，按偏差方向投票得出程度。
+ * 炮制程度判定：分别比对温度、时长、得率与辅料用量，按偏差方向投票得出程度。
+ * 辅料偏差按折算目标的比例计：低于目标 5% 以上记不及、高于 5% 以上记太过，
+ * ±5% 以内不影响结论；清炒、煅等无需辅料的方法不参与辅料比对。
  */
 export function judgeDegree(input: DegreeInput): DegreeVerdict {
-  const { method, fireLevel, duration, temp, yieldRate } = input;
+  const { method, fireLevel, duration, temp, yieldRate, feedKg, auxUsedKg } = input;
   const [tempMin, tempMax] = method.tempRange;
   const expectedYield = expectedYieldOf(method);
   const reasons: string[] = [];
@@ -100,6 +109,26 @@ export function judgeDegree(input: DegreeInput): DegreeVerdict {
     reasons.push(`得率 ${yieldRate}% 低于预期 ${expectedYield}%，损耗过大、疑有焦化`);
   } else {
     reasons.push(`得率 ${yieldRate}% 与预期 ${expectedYield}% 相符`);
+  }
+
+  if (method.auxiliary !== '无' && method.auxRatio > 0) {
+    const auxTargetKg = Number(((feedKg * method.auxRatio) / 100).toFixed(2));
+    if (auxTargetKg > 0) {
+      const deviationPct = Number((((auxUsedKg - auxTargetKg) / auxTargetKg) * 100).toFixed(1));
+      const pctText = `${deviationPct > 0 ? '+' : ''}${deviationPct}%`;
+      const auxDetail = `辅料${method.auxiliary}目标 ${auxTargetKg}kg、实际 ${auxUsedKg}kg、偏差 ${pctText}（按折算目标计）`;
+      if (deviationPct < -AUX_TOLERANCE_PCT) {
+        under += 1;
+        reasons.push(`${auxDetail}，低于折算目标 ${AUX_TOLERANCE_PCT}% 以上，辅料不足`);
+      } else if (deviationPct > AUX_TOLERANCE_PCT) {
+        over += 1;
+        reasons.push(`${auxDetail}，高于折算目标 ${AUX_TOLERANCE_PCT}% 以上，辅料过量`);
+      } else {
+        reasons.push(`${auxDetail}，在折算目标 ±${AUX_TOLERANCE_PCT}% 内，不影响判定`);
+      }
+    }
+  } else {
+    reasons.push(`该方法无需辅料，不参与辅料比对`);
   }
 
   const [fireMin, fireMax] = FIRE_LEVEL_TEMP[fireLevel];

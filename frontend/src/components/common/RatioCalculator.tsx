@@ -1,6 +1,7 @@
 import { Alert, InputNumber, Space, Typography } from 'antd';
 import type { Auxiliary } from '../../types/processing-method';
 import { useRatio, needAuxiliary } from '../../hooks/useRatio';
+import { AUX_TOLERANCE_PCT } from '../../utils/degree';
 
 const { Text } = Typography;
 
@@ -37,7 +38,7 @@ export default function RatioCalculator({
 }: RatioCalculatorProps) {
   const ratio = useRatio({ auxRatio, feedKg, auxUsedKg, outputKg });
   const needAux = needAuxiliary(auxiliary);
-  const deviationWarn = needAux && Math.abs(ratio.deviationPct) > 5;
+  const deviationWarn = needAux && Math.abs(ratio.deviationPct) > AUX_TOLERANCE_PCT;
 
   const content = (
     <Space direction="vertical" size={compact ? 4 : 8} style={{ width: '100%' }}>
@@ -89,7 +90,7 @@ export default function RatioCalculator({
         <Alert
           type="warning"
           showIcon
-          message={`辅料用量偏离标准比例 ${ratio.deviationPct}%，请复核称量记录`}
+          message={`辅料用量偏离折算目标 ${ratio.deviationPct}%，已超出 ±${AUX_TOLERANCE_PCT}% 容差，将计入程度判定，请复核称量记录`}
         />
       ) : null}
 

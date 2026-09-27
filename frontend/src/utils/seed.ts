@@ -64,6 +64,8 @@ function buildSeedBatches(): ProcessBatch[] {
       duration,
       temp: Math.round((method.tempRange[0] + method.tempRange[1]) / 2),
       yieldRate,
+      feedKg,
+      auxUsedKg,
     });
     const locked = index >= 2;
     return {
