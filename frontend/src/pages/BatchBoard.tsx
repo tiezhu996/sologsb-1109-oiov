@@ -76,8 +76,10 @@ export default function BatchBoard() {
       duration: Number(watched?.duration) || watchedMethod.duration,
       temp: Number(watched?.temp) || Math.round((watchedMethod.tempRange[0] + watchedMethod.tempRange[1]) / 2),
       yieldRate: watchedYieldRate,
+      feedKg: Number(watched?.feedKg) || 0,
+      auxUsedKg: Number(watched?.auxUsedKg) || 0,
     });
-  }, [watchedMethod, watched?.fireLevel, watched?.duration, watched?.temp, watchedYieldRate]);
+  }, [watchedMethod, watched?.fireLevel, watched?.duration, watched?.temp, watched?.feedKg, watched?.auxUsedKg, watchedYieldRate]);
 
   const visibleHerbs = useMemo(() => herbFilter.apply(herbs), [herbs, herbFilter]);
   const visibleBatches = useMemo(() => {
@@ -151,12 +153,14 @@ export default function BatchBoard() {
       return;
     }
     const yieldRate = Number(((outputKg / feedKg) * 100).toFixed(1));
+    // auxUsedKg 没有注册 Form.Item（由辅料折算台回填），validateFields 不一定返回，直接从表单 store 取
+    const auxUsedKg = Number(form.getFieldValue('auxUsedKg') ?? values.auxUsedKg) || 0;
     const payload = {
       batchNo: values.batchNo,
       herbId: values.herbId,
       methodId: values.methodId,
       feedKg,
-      auxUsedKg: Number(values.auxUsedKg) || 0,
+      auxUsedKg,
       fireLevel: values.fireLevel,
       startedAt: values.startedAt.toISOString(),
       endedAt: values.endedAt.toISOString(),
@@ -238,7 +242,8 @@ export default function BatchBoard() {
         炮制工序记录台
       </Title>
       <Paragraph type="secondary">
-        选择方法即带出辅料比例、火候与判断标准；录入实际锅温、时长与炮制后重量，系统按标准自动给出程度判定，提交后锁定该批。
+        选择方法即带出辅料比例、火候与判断标准；录入实际锅温、时长、辅料用量与炮制后重量，系统按标准自动给出程度判定（辅料偏差按折算目标
+        ±5% 参与判定），提交后锁定该批。
       </Paragraph>
 
       <Space style={{ marginBottom: 12 }} wrap>
@@ -317,7 +322,7 @@ export default function BatchBoard() {
                 } as unknown as BatchFormValues);
               }
             }
-            if (verdict && ('temp' in changed || 'duration' in changed || 'outputKg' in changed)) {
+            if (verdict && ('temp' in changed || 'duration' in changed || 'outputKg' in changed || 'feedKg' in changed || 'auxUsedKg' in changed)) {
               form.setFieldsValue({ degree: verdict.degree } as unknown as BatchFormValues);
             }
           }}
